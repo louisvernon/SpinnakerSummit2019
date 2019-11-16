@@ -1,0 +1,107 @@
+{
+  "applications": [
+    "canary"
+  ],
+  "classifier": {
+    "groupWeights": {
+      "Istio Metrics": 60,
+      "Kubernetes Metrics": 40
+    }
+  },
+  "judge": {
+    "judgeConfigurations": {},
+    "name": "NetflixACAJudge-v1.0"
+  },
+  "metrics": [
+    {
+      "analysisConfigurations": {
+        "canary": {
+          "direction": "decrease"
+        }
+      },
+      "groups": [
+        "Istio Metrics"
+      ],
+      "name": "Healthy Responses",
+      "query": {
+        "crossSeriesReducer": "REDUCE_SUM",
+        "customFilterTemplate": "2XXs",
+        "metricType": "istio.io/service/server/request_count",
+        "perSeriesAligner": "ALIGN_RATE",
+        "resourceType": "k8s_container",
+        "serviceType": "stackdriver",
+        "type": "stackdriver"
+      },
+      "scopeName": "default"
+    },
+    {
+      "analysisConfigurations": {
+        "canary": {
+          "direction": "increase"
+        }
+      },
+      "groups": [
+        "Istio Metrics"
+      ],
+      "name": "95th Percentile Latency",
+      "query": {
+        "crossSeriesReducer": "REDUCE_SUM",
+        "customFilterTemplate": "Everything matching deployment",
+        "metricType": "istio.io/service/server/response_latencies",
+        "perSeriesAligner": "ALIGN_PERCENTILE_95",
+        "resourceType": "k8s_container",
+        "serviceType": "stackdriver",
+        "type": "stackdriver"
+      },
+      "scopeName": "default"
+    },
+    {
+      "analysisConfigurations": {
+        "canary": {
+          "direction": "increase"
+        }
+      },
+      "groups": [
+        "Kubernetes Metrics"
+      ],
+      "name": "CPU Utilization",
+      "query": {
+        "crossSeriesReducer": "REDUCE_MEAN",
+        "customFilterTemplate": "Container Attr",
+        "metricType": "kubernetes.io/container/cpu/request_utilization",
+        "perSeriesAligner": "ALIGN_MEAN",
+        "resourceType": "k8s_container",
+        "serviceType": "stackdriver",
+        "type": "stackdriver"
+      },
+      "scopeName": "default"
+    },
+    {
+      "analysisConfigurations": {
+        "canary": {
+          "direction": "increase"
+        }
+      },
+      "groups": [
+        "Kubernetes Metrics"
+      ],
+      "name": "Memory Utilization",
+      "query": {
+        "crossSeriesReducer": "REDUCE_MEAN",
+        "customFilterTemplate": "Container Attr",
+        "metricType": "kubernetes.io/container/memory/request_utilization",
+        "perSeriesAligner": "ALIGN_MEAN",
+        "resourceType": "k8s_container",
+        "serviceType": "stackdriver",
+        "type": "stackdriver"
+      },
+      "scopeName": "default"
+    }
+  ],
+  "name": "Simple_Metrics",
+  "templates": {
+    "2XXs": "metric.label.response_code > 199  AND metric.label.response_code < 300  AND metric.label.destination_workload_name=\"${scope}\" AND metric.label.destination_service_namespace=\"${location}\"\n",
+    "Container Attr": "resource.label.namespace_name=\"${location}\" AND metadata.system_labels.top_level_controller_name=\"${scope}\"",
+    "Everything matching deployment": "metric.label.destination_service_name=\"${scope}\""
+  }
+}
