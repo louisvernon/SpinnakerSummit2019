@@ -1,0 +1,30 @@
+{
+  "service": {
+    "name": "myservice",
+    "image": "us.gcr.io/myproject/myservice/prod",
+    "cluster_name": "mycluster",
+    "prerelease":  {
+      "envConfig": "Staging",
+      "minReplicas": 2
+    },
+    "release":  {
+      "envConfig": "Production",
+      "minReplicas": 12
+    }
+  },
+  "pipelines": {
+    "continuous_deployment": {
+      "id": "myservice_continuous_deployment",
+      "predeploy_jobs" : [ {
+          "name" : "migrate_schema",
+          "type" : "migrations"
+       } ]
+    },
+    "rollback": {"id": "myservice_rollback_release"},
+    "k8s_deployment": {"id": "myservice_k8s_deployment" },
+    "development_deployment": {"id": "myservice_development_deployment" },
+    "k8s_hpa": { "id": "myservice_hpa" },
+    "virtual_service": { "id": "myservice_virtualservice" },
+    "k8s_service_default_config": {"id": "myservice_service_auto_config"},
+  }
+}

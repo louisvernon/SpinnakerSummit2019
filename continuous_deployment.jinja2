@@ -1,0 +1,446 @@
+{
+  "application": "{{ pipelines.Continuous_Deployment.application|default(service.name) }}",
+  "id": "{{ pipelines.Continuous_Deployment.id }}",
+  "name": "Continuous_Deployment",
+  "notifications": [
+    {
+      "address": "spinnaker",
+      "level": "pipeline",
+      "type": "slack",
+      "when": [
+        "pipeline.complete"
+      ]
+    }
+  ],
+  "parameterConfig": [
+    {
+     "default": "{{ service.prerelease.namespace|default(service.name) }}",
+     "name": "namespace-prerelease"
+    },
+    {
+     "default": "{{ service.release.namespace|default(service.name) }}",
+     "name": "namespace-release"
+    },
+    {
+     "default": "",
+     "description": "Specify a {{ service.name }} image tag to deploy, e.g. v2019.10.21-13-g832b8366. Empty/malformed image-tags will fail during Manual Execution.",
+     "hasOptions": false,
+     "name": "image-tag",
+     "options": [],
+     "required": false
+    }
+  ],
+  "expectedArtifacts": [
+    {
+      "id": "{{ service.name }}-deployment-manifest",
+      "defaultArtifact": {
+        "id": "{{ service.name }}-deployment-manifest-default-artifact",
+        "kind": "default.github",
+        "name": "{{ PATH_PREFIX }}/k8s/deployment.yaml",
+        "reference": "https://api.github.com/repos/myrepo/monorepo/contents/{{ PATH_PREFIX }}/k8s/deployment.yaml",
+        "type": "github/file",
+        "version": "master"
+      },
+      "matchArtifact": {
+        "id": "{{ service.name }}-deployment-manifest-match-artifact",
+        "kind": "github",
+        "name": "{{ PATH_PREFIX }}/k8s/deployment.yaml",
+        "type": "github/file"
+      },
+      "useDefaultArtifact": true,
+      "usePriorExecution": false
+    },
+    {% if pipelines.Continuous_Deployment.use_configmap|default('false') == "true" %}
+    {
+      "id": "{{ service.name }}-configmap-prerelease",
+      "defaultArtifact": {
+        "id": "{{ service.name }}-configmap-prerelease-default-artifact",
+        "kind": "default.github",
+        "name": "{{ PATH_PREFIX }}/k8s/configmap-prerelease.yaml",
+        "reference": "https://api.github.com/repos/myrepo/monorepo/contents/{{ PATH_PREFIX }}/k8s/configmap-prerelease.yaml",
+        "type": "github/file",
+        "version": "master"
+      },
+      "matchArtifact": {
+        "id": "{{ service.name }}-configmap-prerelease-match-artifact",
+        "kind": "github",
+        "name": "{{ PATH_PREFIX }}/k8s/configmap-prerelease.yaml",
+        "type": "github/file"
+      },
+      "useDefaultArtifact": true,
+      "usePriorExecution": false
+    },
+    {
+      "id": "{{ service.name }}-configmap-release",
+      "defaultArtifact": {
+        "id": "{{ service.name }}-configmap-release-default-artifact",
+        "kind": "default.github",
+        "name": "{{ PATH_PREFIX }}/k8s/configmap-release.yaml",
+        "reference": "https://api.github.com/repos/myrepo/monorepo/contents/{{ PATH_PREFIX }}/k8s/configmap-release.yaml",
+        "type": "github/file",
+        "version": "master"
+      },
+      "matchArtifact": {
+        "id": "{{ service.name }}-configmap-release-match-artifact",
+        "kind": "github",
+        "name": "{{ PATH_PREFIX }}/k8s/configmap-release.yaml",
+        "type": "github/file"
+      },
+      "useDefaultArtifact": true,
+      "usePriorExecution": false
+    },
+    {% endif %}
+    {% if (pipelines.Continuous_Deployment.predeploy_jobs is defined) and (pipelines.Continuous_Deployment.predeploy_jobs[0] is defined) %}
+    {% for predeploy_job in pipelines.Continuous_Deployment.predeploy_jobs %}
+    {
+       "defaultArtifact": {
+        "id": "{{ service.name }}-{{ predeploy_job.name }}-default-artifact",
+        "kind": "default.github",
+        "name": "{{ PATH_PREFIX }}/migrations/k8s/{{ predeploy_job.name }}.yaml",
+        "reference": "https://api.github.com/repos/myrepo/monorepo/contents/{{ PATH_PREFIX }}/{{ predeploy_job.type }}/k8s/{{ predeploy_job.name }}.yaml",
+        "type": "github/file",
+        "version": "master"
+       },
+       "id": "{{ service.name }}-predeploy-job-{{ loop.index0 }}",
+       "matchArtifact": {
+        "id": "{{ service.name }}-{{ predeploy_job.name }}-match-artifact",
+        "kind": "github",
+        "name": "{{ PATH_PREFIX }}/{{ predeploy_job.type }}/k8s/{{ predeploy_job.name }}.yaml",
+        "type": "github/file"
+       },
+       "useDefaultArtifact": true,
+       "usePriorArtifact": false
+   },
+   {% endfor %}
+   {% endif %}
+    {
+      "id": "{{ service.name }}-image",
+      "defaultArtifact": {
+        "id": "{{ service.name }}-image-default-artifact",
+        "kind": "default.docker",
+        "name": "{{ service.image }}",
+        "reference": "{{ service.image }}:${parameters[\"image-tag\"]}",
+        "type": "docker/image"
+      },
+      "matchArtifact": {
+        "id": "{{ service.name }}-image-match-artifact",
+        "kind": "docker",
+        "name": "{{ service.image }}",
+        "type": "docker/image"
+      },
+      "useDefaultArtifact": true,
+      "usePriorArtifact": false
+    }
+  ],
+  "triggers": [
+    {
+      "attributeConstraints": {},
+      "enabled": true,
+      "expectedArtifactIds": [
+        "{{ service.name }}-image"
+      ],
+      "payloadConstraints": {},
+      "pubsubSystem": "google",
+      "subscriptionName": "spinnaker-dl-ci-cd-{{ service.image.split("/")[1] }}-gcr",
+      "type": "pubsub"
+    }
+  ],
+  "stages": [
+    {
+     "account": "{{ service.release.cluster_name|default(service.cluster_name) }}",
+     "cloudProvider": "kubernetes",
+     "expectedArtifacts": [],
+     "location": "${parameters[\"namespace-release\"]}",
+     "manifestName": "deployment {% if service.release.deployment is defined %}{{ service.release.deployment }}{% else %}{{ service.name }}-release{% endif %}",
+     "mode": "static",
+     "name": "Get Image from Release",
+     "refId": "getimagefromprod",
+     "requisiteStageRefIds": [
+      "manualTrigger",
+      "pubsubTrigger"
+     ],
+     "type": "findArtifactsFromResource"
+    },
+    {
+     "failOnFailedExpressions": true,
+     "name": "Manual Trigger",
+     "refId": "manualTrigger",
+     "requisiteStageRefIds": [],
+     "stageEnabled": {
+     "expression": "trigger.type ==\"manual\" || trigger.type ==\"pipeline\"",
+      "type": "expression"
+     },
+     "type": "evaluateVariables",
+     "variables": [
+      {
+       "key": "tag",
+       "value": "${ parameters[\"image-tag\"] }"
+      }
+     ]
+    },
+    {
+     "failOnFailedExpressions": true,
+     "name": "PubSub Trigger",
+     "refId": "pubsubTrigger",
+     "requisiteStageRefIds": [],
+     "stageEnabled": {
+      "expression": "trigger.type ==\"pubsub\"",
+      "type": "expression"
+     },
+     "type": "evaluateVariables",
+     "variables": [
+      {
+       "key": "tag",
+       "value": "${ trigger.payload.tag.split(':')[1]}"
+      },
+      {
+       "key": "1. ${ parameters[\"image-tag\"] = trigger.payload.tag.split(':')[1] }",
+       "value": "This updates the parameter image-tag with the tag from the payload"
+      },
+      {
+       "key": "2. ${ trigger['payload']['digest'] = trigger['payload']['tag'] }",
+       "value": "This replaces the SHA in the pipeline execution UI with the image tag"
+      },
+      {
+       "key": "3. ${ trigger['resolvedExpectedArtifacts'].?[id == '{{ service.name }}-image'][0]['boundArtifact']['version'] = trigger['payload']['tag'].split(':')[1] }",
+       "value": "This replaces the SHA in the bound artifact"
+      },
+      {
+       "key": "4. ${ trigger['resolvedExpectedArtifacts'].?[id == '{{ service.name }}-image'][0]['boundArtifact']['reference'] = trigger['payload']['tag'] }",
+       "value": "This replaces the full image reference in the bound artifact"
+      }
+      ]
+     },
+    {
+      "name": "ConfigMap in Pre-Release",
+      "refId": "configmap-prerelease",
+      "account": "{{ service.prerelease.cluster_name|default(service.cluster_name) }}",
+      "cloudProvider": "kubernetes",
+      "manifestArtifactAccount": "github-artifact-account",
+      "manifestArtifactId": "{{ service.name }}-configmap-prerelease",
+      "moniker": {
+        "app": "{{ service.name }}"
+      },
+      "requisiteStageRefIds": [
+        "getimagefromprod"
+      ],
+      "source": "artifact",
+      "stageEnabled": {
+      "expression": "{% raw %}#{% endraw %}toBoolean('{{ pipelines.Continuous_Deployment.use_configmap|default('false') }}')",
+      "type": "expression"
+      },
+      "target-namespace": "${parameters[\"namespace-prerelease\"]}",
+      "type": "deployManifest"
+    },
+    {% if (pipelines.Continuous_Deployment.predeploy_jobs is defined) and (pipelines.Continuous_Deployment.predeploy_jobs[0] is defined) %}
+    {% for predeploy_job in pipelines.Continuous_Deployment.predeploy_jobs %}
+    {
+      "account": "{{ service.prerelease.cluster_name|default(service.cluster_name) }}",
+      "cloudProvider": "kubernetes",
+      "jobid": "${['tag']}-${execution['startTime']}",
+      "completeOtherBranchesThenFail": false,
+      "continuePipeline": true,
+      "failPipeline": false,
+      "manifestArtifactAccount": "myrepo-github-artifact-account",
+      "manifestArtifactId": "{{ service.name }}-predeploy-job-{{ loop.index0 }}",
+      "moniker": {
+       "app": "{{ service.name }}"
+      },
+      "name": "Predeploy Job {{ predeploy_job.name }}",
+      "sendNotifications": true,
+      "notifications": [
+        {
+          "address": "spinnaker",
+          "level": "stage",
+          "type": "slack",
+          "when": [
+            "stage.failed"
+          ]
+        }
+      ],
+      "refId": "{{ service.name }}-pre-deploy-{{ loop.index0 }}",
+      "requiredArtifactIds": [
+       "{{ service.name }}-image"
+      ],
+      "requisiteStageRefIds": [
+      {% if loop.first %}
+      "configmap-prerelease"
+      {% else %}
+      "{{ service.name }}-pre-deploy-{{ loop.index0 -1 }}-gate"
+      {% endif %}
+      ],
+      "source": "artifact",
+      "target-namespace": "${parameters[\"namespace-release\"]}",
+      "target-stage": "{{ service.prerelease.envConfig }}",
+      "type": "deployManifest"
+     },
+     {
+      "account": "{{ service.prerelease.cluster_name|default(service.cluster_name) }}",
+      "cloudProvider": "kubernetes",
+      "kinds": [
+        "Job"
+      ],
+      "location": "${parameters[\"namespace-release\"]}",
+      "manifestName": "Job {% raw %}${#{% endraw %}stage(\"Predeploy Job {{ predeploy_job.name }}\").outputs.artifacts.?[type == \"kubernetes/job\"][0].reference}",
+      "name": "Cleanup Job {{ predeploy_job.name }}",
+      "options": {
+        "cascading": true
+      },
+      "refId": "{{ service.name }}-pre-deploy-{{ loop.index0 }}-cleanup",
+      "requisiteStageRefIds": [
+        "{{ service.name }}-pre-deploy-{{ loop.index0 }}"
+      ],
+      "type": "deleteManifest"
+    },
+    {
+      "name": "Check {{ predeploy_job.name }} Success",
+      "preconditions": [
+        {
+          "context": {
+            "expression": "{% raw %}${#{% endraw %}stage(\"Predeploy Job {{ predeploy_job.name }}\").status.toString() == 'SUCCEEDED'}"
+          },
+          "failPipeline": true,
+          "type": "expression"
+        }
+      ],
+      "refId": "{{ service.name }}-pre-deploy-{{ loop.index0 }}-gate",
+      "requisiteStageRefIds": [
+        "{{ service.name }}-pre-deploy-{{ loop.index0 }}"
+      ],
+      "type": "checkPreconditions"
+    },
+     {% endfor %}
+     {% endif %}
+    {
+      "name": "Deploy Pre-Release",
+      "sendNotifications": true,
+      "notifications": [
+        {
+          "address": "spinnaker",
+          "level": "stage",
+          "type": "slack",
+          "message": {
+            "stage.failed": {
+              "text": "Commit: {% raw %}https://github.com/myrepo/monorepo/compare/${#stage('Get Image from Release').outputs.artifacts.?[type == 'docker/image'][0].reference.split(':')[1].split('-g')[#stage('Get Image from Release').outputs.artifacts.?[type == 'docker/image'][0].reference.split(':')[1].split('-g').length - 1]}...${tag.split('-g')[tag.split('-g').length - 1]}{% endraw %}"
+            }
+          },
+          "when": [
+            "stage.failed"
+          ]
+        }
+      ],
+      "refId": "deployment-prerelease",
+      "account": "{{ service.prerelease.cluster_name|default(service.cluster_name) }}",
+      "cloudProvider": "kubernetes",
+      "manifestArtifactAccount": "github-artifact-account",
+      "manifestArtifactId": "{{ service.name }}-deployment-manifest",
+      "moniker": {
+        "app": "{{ service.name }}"
+      },
+      "requiredArtifactIds": [
+       "{{ service.name }}-image"
+      ],
+      "requisiteStageRefIds": [
+      {% if (pipelines.Continuous_Deployment.predeploy_jobs is defined) and (pipelines.Continuous_Deployment.predeploy_jobs[0] is defined) %}
+        "{{ service.name }}-pre-deploy-{{ pipelines.Continuous_Deployment.predeploy_jobs|length -1 }}-gate"
+      {% else %}
+        "configmap-prerelease"
+      {% endif %}
+      ],
+      "source": "artifact",
+      "target-namespace": "${parameters[\"namespace-prerelease\"]}",
+      "target-stage": "{{ service.prerelease.envConfig }}",
+      "stage": "prerelease",
+      "type": "deployManifest"
+    },
+    {
+      "name": "Manual Judgment",
+      "refId": "manualjudgement",
+      "failPipeline": true,
+      "instructions": "Deploy Release? <a href='{% raw %}https://github.com/myrepo/monorepo/compare/${#stage('Get Image from Release').outputs.artifacts.?[type == 'docker/image'][0].reference.split(':')[1].split('-g')[#stage('Get Image from Release').outputs.artifacts.?[type == 'docker/image'][0].reference.split(':')[1].split('-g').length - 1]}...${tag.split('-g')[tag.split('-g').length - 1]}{% endraw %}'>Github Diff</a>",
+      "judgmentInputs": [],
+      "notifications": [
+      {
+        "address": "spinnaker",
+        "level": "stage",
+        "type": "slack",
+        "when": [
+          "manualJudgmentContinue"
+        ]
+      }
+      ],
+      "overrideTimeout": true,
+      "requisiteStageRefIds": [
+        "deployment-prerelease"
+      ],
+      "stageTimeoutMs": 3600000,
+      "type": "manualJudgment"
+    },
+    {
+      "name": "ConfigMap for Release",
+      "refId": "configmap-release",
+      "account": "{{ service.release.cluster_name|default(service.cluster_name) }}",
+      "cloudProvider": "kubernetes",
+      "manifestArtifactAccount": "github-artifact-account",
+      "manifestArtifactId": "{{ service.name }}-configmap-release",
+      "moniker": {
+        "app": "{{ service.name }}"
+      },
+      "requisiteStageRefIds": [
+        "manualjudgement"
+      ],
+      "source": "artifact",
+      "stageEnabled": {
+      "expression": "{% raw %}#{% endraw %}toBoolean('{{ pipelines.Continuous_Deployment.use_configmap|default('false') }}')",
+      "type": "expression"
+      },
+      "target-namespace": "${parameters[\"namespace-release\"]}",
+      "type": "deployManifest"
+    },
+    {
+      "name": "Deploy Release",
+      "sendNotifications": true,
+      "notifications": [
+        {
+          "address": "spinnaker",
+          "level": "stage",
+          "type": "slack",
+          "message": {
+            "stage.starting": {
+              "text": "Github Diff: {% raw %}https://github.com/myrepo/monorepo/compare/${#stage('Get Image from Release').outputs.artifacts.?[type == 'docker/image'][0].reference.split(':')[1].split('-g')[#stage('Get Image from Release').outputs.artifacts.?[type == 'docker/image'][0].reference.split(':')[1].split('-g').length - 1]}...${tag.split('-g')[tag.split('-g').length - 1]}{% endraw %}"
+            },
+            "stage.failed": {
+              "text": "Commit: {% raw %}https://github.com/myrepo/monorepo/compare/${#stage('Get Image from Release').outputs.artifacts.?[type == 'docker/image'][0].reference.split(':')[1].split('-g')[#stage('Get Image from Release').outputs.artifacts.?[type == 'docker/image'][0].reference.split(':')[1].split('-g').length - 1]}...${tag.split('-g')[tag.split('-g').length - 1]}{% endraw %}"
+            }
+          },
+          "when": [
+            "stage.starting",
+            "stage.failed"
+          ]
+        }
+      ],
+      "refId": "deployment-release",
+      "requiredArtifactIds": [
+       "{{ service.name }}-image"
+      ],
+      "account": "{{ service.release.cluster_name|default(service.cluster_name) }}",
+      "cloudProvider": "kubernetes",
+      "manifestArtifactAccount": "github-artifact-account",
+      "manifestArtifactId": "{{ service.name }}-deployment-manifest",
+      "moniker": {
+        "app": "{{ service.name }}"
+      },
+      "requisiteStageRefIds": [
+        "configmap-release"
+      ],
+      "source": "artifact",
+      "target-namespace": "${parameters[\"namespace-release\"]}",
+      "target-stage": "{{ service.release.envConfig }}",
+      "stage": "release",
+      "stageTimeoutMs": 3600000,
+      "type": "deployManifest"
+    }
+  ],
+  "limitConcurrent": true,
+  "keepWaitingPipelines": false
+}
